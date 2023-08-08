@@ -1,6 +1,6 @@
 Package: twdtw
 Title: Time-Weighted Dynamic Time Warping
-Version: 1.0-0
+Version: 1.0-1
 Authors@R: 
     c(
       person(
@@ -27,14 +27,14 @@ BugReports: https://github.com/vwmaus/twdtw/issues/
 Encoding: UTF-8
 RoxygenNote: 7.2.3
 Imports: Rcpp, proxy
-Suggests: readr, rbenchmark, testthat (>= 3.0.0)
+Suggests: rbenchmark, testthat (>= 3.0.0)
 LinkingTo: Rcpp
 Collate: 'RcppExports.R' 'convert_date_to_numeric.R' 'init.R'
         'plot_cost_matrix.R' 'twdtw.R' 'zzz.R'
 Config/testthat/edition: 3
 NeedsCompilation: yes
-Packaged: 2023-07-12 08:54:03 UTC; maus
+Packaged: 2023-08-07 23:39:33 UTC; maus
 Author: Victor Maus [aut, cre] (<https://orcid.org/0000-0002-7385-4723>)
 Maintainer: Victor Maus <vwmaus1@gmail.com>
 Repository: CRAN
-Date/Publication: 2023-07-13 14:10:02 UTC
+Date/Publication: 2023-08-08 07:20:02 UTC
