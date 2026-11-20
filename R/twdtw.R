@@ -24,7 +24,8 @@
 #' 'matches' will return all matches within the TWDTW matrix. 'internals' will return all TWDTW internal data.
 #' @param version A string identifying the version of TWDTW implementation.
 #' Options are 'f90' for Fortran 90, 'f90goto' for Fortran 90 with goto statements,
-#' or 'cpp' for C++ version. Defaults to 'f90'. See details.
+#' or 'cpp' for C++ version. Defaults to 'f90'. The versions 'f90goto' and 'cpp' are
+#' deprecated and will be removed in version 1.2-0. See details.
 #' @param ... ignore
 #'
 #'
@@ -56,22 +57,39 @@
 #' single numeric value. The first argument received is the Euclidean \eqn{dist_{i,j}} and the second
 #' is the elapsed time \eqn{el_{i,j}}. For example,
 #' \code{time_weight = function(dist, el) dist + 0.1*el} defines a linear weighting scheme with a slope of 0.1.
+#' A time-weight function can only be used with \code{version = 'f90'}, which is the default.
 #'
-#' The Fortran 90 versions of \code{twdtw} are usually faster than the C++ version.
-#' The '`f90goto`' version, which uses goto statements, is slightly quicker than the
-#' '`f90`' version that uses while and for loops. You can use the `max_elapsed` parameter
+#' To calculate the distance without a time weight, use a logistic weight with a midpoint far
+#' above any elapsed time, e.g. \code{time_weight = c(steepness = 1, midpoint = 1e6)}, which adds zero
+#' to the distance of each pair of observations. The result is the Dynamic Time Warping (DTW)
+#' distance as TWDTW calculates it: all observations of \code{y} are matched, and the match
+#' can start and end at any observation of \code{x}. This is not the DTW distance between two
+#' time series that are matched from their first to their last observations. The function
+#' \code{function(dist, el) dist} gives the same distance, but is slower.
+#'
+#' The versions '`f90goto`' and '`cpp`' are deprecated and will be removed in version 1.2-0.
+#' They give the same result as the default version '`f90`' for the logistic time weight,
+#' and \code{twdtw} gives a warning once per session if one of them is used.
+#'
+#' You can use the `max_elapsed` parameter
 #' to limit the TWDTW calculation to a maximum elapsed time. This means it will skip
 #' comparisons between pairs of observations in `x` and `y` that are far apart in time.
 #' Be careful, though: if `max_elapsed` is set too low, it could change the results.
 #' It important to try out different settings for your specific problem.
 #'
+#' The time series can have missing values. An observation with a missing value in any dimension
+#' is removed from \code{x} and \code{y}, and the distance is calculated with the remaining observations.
+#' Only if every observation of \code{x} or \code{y} has a missing value, there is nothing to compare:
+#' the distance is \code{NA} and there are no matches.
+#'
 #' @return An S3 object twdtw either:
-#' If output = 'distance', a numeric value representing the TWDTW distance between the two time series.
+#' If output = 'distance', a numeric value representing the TWDTW distance between the two time series,
+#' or \code{NA} if every observation of one of them has a missing value.
 #' If output = 'matches', a numeric matrix of all TWDTW matches. For each match the starting index, ending index,
 #' and distance are returned. If output = 'internals', a list of all TWDTW internal data is returned.
 #'
 #' @references
-#' Maus, V., Camara, G., Cartaxo, R., Sanchez, A., Ramos, F. M., & de Moura, Y. M. (2016).
+#' Maus, V., Camara, G., Cartaxo, R., Sanchez, A., Ramos, F. M., & de Queiroz, G. R. (2016).
 #' A Time-Weighted Dynamic Time Warping Method for Land-Use and Land-Cover Mapping.
 #' IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing, 9(8), 3729-3739.
 #' \doi{10.1109/JSTARS.2016.2517118}
@@ -108,18 +126,11 @@
 #'       time_scale = 'day',
 #'       time_weight = function(x,y) x + 1.0 / (1.0 + exp(-0.1 * (y - 50))))
 #'
-#' # Test other version
+#' # Without a time weight: a midpoint that no elapsed time reaches adds zero
 #' twdtw(x, y,
 #'       cycle_length = 'year',
 #'       time_scale = 'day',
-#'       time_weight = c(steepness = 0.1, midpoint = 50),
-#'       version = 'f90goto')
-#'
-#' twdtw(x, y,
-#'       cycle_length = 'year',
-#'       time_scale = 'day',
-#'       time_weight = c(steepness = 0.1, midpoint = 50),
-#'       version = 'cpp')
+#'       time_weight = c(steepness = 1, midpoint = 1e6))
 #'
 #' @include convert_date_to_numeric.R
 #'
@@ -209,6 +220,21 @@ twdtw.matrix <- function(x, y,
     stop("'time_weight' should be either a function or a numeric vector with length two")
   }
 
+  if (!is.character(version) || length(version) != 1 || !version %in% c('f90', 'f90goto', 'cpp')) {
+    stop("Incorrect version. Must be one of 'f90', 'f90goto', 'cpp'")
+  }
+
+  # Only the 'f90' version calls a time-weight function. The other versions
+  # would ignore the function and use the logistic time weight
+  if (is.function(time_weight) && !identical(version, 'f90')) {
+    stop("A time-weight function can only be used with version = 'f90'")
+  }
+
+  # The other versions will be removed
+  if (!identical(version, 'f90')) {
+    .warn_deprecated_version()
+  }
+
   # Check if 'cycle_length' is declared
   if (is.null(cycle_length)) stop("The 'cycle_length' argument is missing.")
 
@@ -255,13 +281,31 @@ twdtw.matrix <- function(x, y,
   CM <- matrix(0, nrow = N+1, ncol = M)
   DM <- matrix(0L, nrow = N+1, ncol = M)
   VM <- matrix(0L, nrow = N+1, ncol = M)
-  JB <- as.integer(rep(0, N))
+  # One slot per observation in x: there can be as many matches as columns in CM
+  JB <- as.integer(rep(0, M))
   CL <- as.double(cycle_length)
   LB <- as.double(max_elapsed)
   if (is.function(time_weight)){
     TW <- as.double(c(0.0, 0.0))
   } else {
     TW <- as.double(time_weight)
+  }
+
+  # The observations with missing values were removed. If none is left in x or
+  # y, there is nothing to compare: the distance is missing and there are no
+  # matches. The compiled routines must not be called, because they read and
+  # write the first observation of both time series
+  if (N < 1L || M < 1L) {
+    out <- matrix(numeric(0), ncol = 3)
+    if (output == 'distance'){
+      out <- NA_real_
+    } else if (output == 'internals'){
+      out <- list(XM = XM, YM = YM, CM = CM, DM = DM,
+                  VM = VM, N = N, M = M, D = D,
+                  TW = TW, LB = LB, JB = JB, CL = CL, matches = out)
+    }
+    class(out) <- "twdtw"
+    return(out)
   }
 
   # Get the function version using its name
@@ -316,3 +360,23 @@ print.twdtw <- function(x, ...) {
   }
 }
 
+# Internal environment that keeps the state of the R session
+.twdtw_session <- new.env(parent = emptyenv())
+
+# Internal function
+# Warn that the versions 'f90goto' and 'cpp' of twdtw are deprecated. The
+# warning is given once per R session, so that it is not repeated for each
+# pair of time series
+.warn_deprecated_version <- function() {
+
+  if (isTRUE(.twdtw_session$deprecated_version_warned)) {
+    return(invisible(NULL))
+  }
+
+  .twdtw_session$deprecated_version_warned <- TRUE
+
+  warning("The versions 'f90goto' and 'cpp' of twdtw are deprecated and will be removed in version 1.2-0. ",
+          "Use the default version 'f90', which gives the same result. ",
+          "This warning is given once per session.", call. = FALSE)
+
+}

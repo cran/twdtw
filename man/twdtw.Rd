@@ -68,11 +68,13 @@ For matrix input, an integer indicating the column with the time index. Defaults
 
 \item{version}{A string identifying the version of TWDTW implementation.
 Options are 'f90' for Fortran 90, 'f90goto' for Fortran 90 with goto statements,
-or 'cpp' for C++ version. Defaults to 'f90'. See details.}
+or 'cpp' for C++ version. Defaults to 'f90'. The versions 'f90goto' and 'cpp' are
+deprecated and will be removed in version 1.2-0. See details.}
 }
 \value{
 An S3 object twdtw either:
-If output = 'distance', a numeric value representing the TWDTW distance between the two time series.
+If output = 'distance', a numeric value representing the TWDTW distance between the two time series,
+or \code{NA} if every observation of one of them has a missing value.
 If output = 'matches', a numeric matrix of all TWDTW matches. For each match the starting index, ending index,
 and distance are returned. If output = 'internals', a list of all TWDTW internal data is returned.
 }
@@ -108,14 +110,30 @@ A time-weight function passed to \code{time_weight} must receive two numeric arg
 single numeric value. The first argument received is the Euclidean \eqn{dist_{i,j}} and the second
 is the elapsed time \eqn{el_{i,j}}. For example,
 \code{time_weight = function(dist, el) dist + 0.1*el} defines a linear weighting scheme with a slope of 0.1.
+A time-weight function can only be used with \code{version = 'f90'}, which is the default.
 
-The Fortran 90 versions of \code{twdtw} are usually faster than the C++ version.
-The '\code{f90goto}' version, which uses goto statements, is slightly quicker than the
-'\code{f90}' version that uses while and for loops. You can use the \code{max_elapsed} parameter
+To calculate the distance without a time weight, use a logistic weight with a midpoint far
+above any elapsed time, e.g. \code{time_weight = c(steepness = 1, midpoint = 1e6)}, which adds zero
+to the distance of each pair of observations. The result is the Dynamic Time Warping (DTW)
+distance as TWDTW calculates it: all observations of \code{y} are matched, and the match
+can start and end at any observation of \code{x}. This is not the DTW distance between two
+time series that are matched from their first to their last observations. The function
+\code{function(dist, el) dist} gives the same distance, but is slower.
+
+The versions '\code{f90goto}' and '\code{cpp}' are deprecated and will be removed in version 1.2-0.
+They give the same result as the default version '\code{f90}' for the logistic time weight,
+and \code{twdtw} gives a warning once per session if one of them is used.
+
+You can use the \code{max_elapsed} parameter
 to limit the TWDTW calculation to a maximum elapsed time. This means it will skip
 comparisons between pairs of observations in \code{x} and \code{y} that are far apart in time.
 Be careful, though: if \code{max_elapsed} is set too low, it could change the results.
 It important to try out different settings for your specific problem.
+
+The time series can have missing values. An observation with a missing value in any dimension
+is removed from \code{x} and \code{y}, and the distance is calculated with the remaining observations.
+Only if every observation of \code{x} or \code{y} has a missing value, there is nothing to compare:
+the distance is \code{NA} and there are no matches.
 }
 \examples{
 
@@ -144,22 +162,15 @@ twdtw(x, y,
       time_scale = 'day',
       time_weight = function(x,y) x + 1.0 / (1.0 + exp(-0.1 * (y - 50))))
 
-# Test other version
+# Without a time weight: a midpoint that no elapsed time reaches adds zero
 twdtw(x, y,
       cycle_length = 'year',
       time_scale = 'day',
-      time_weight = c(steepness = 0.1, midpoint = 50),
-      version = 'f90goto')
-
-twdtw(x, y,
-      cycle_length = 'year',
-      time_scale = 'day',
-      time_weight = c(steepness = 0.1, midpoint = 50),
-      version = 'cpp')
+      time_weight = c(steepness = 1, midpoint = 1e6))
 
 }
 \references{
-Maus, V., Camara, G., Cartaxo, R., Sanchez, A., Ramos, F. M., & de Moura, Y. M. (2016).
+Maus, V., Camara, G., Cartaxo, R., Sanchez, A., Ramos, F. M., & de Queiroz, G. R. (2016).
 A Time-Weighted Dynamic Time Warping Method for Land-Use and Land-Cover Mapping.
 IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing, 9(8), 3729-3739.
 \doi{10.1109/JSTARS.2016.2517118}
